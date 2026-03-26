@@ -151,6 +151,7 @@ jobs:
 
       # Enrich orchestrate output with GitHub Environment names derived from WorkingDirectory.
       # e.g. network-inspection/production/account_baseline -> network-inspection-production
+      # Root-level jobs (WorkingDirectory ".") get no environment.
       # This follows the convention that .gruntwork/ environment labels match <system>-<environment>.
       - name: Enrich jobs with GitHub Environment
         id: enrich
@@ -160,7 +161,7 @@ jobs:
           if [ -z "$ORCHESTRATE_JOBS" ] || [ "$ORCHESTRATE_JOBS" = "[]" ]; then
             echo "jobs=[]" >> "$GITHUB_OUTPUT"
           else
-            ENRICHED=$(echo "$ORCHESTRATE_JOBS" | jq -c '[.[] | . + {Environment: (.WorkingDirectory | split("/") | .[0:2] | join("-"))}]')
+            ENRICHED=$(echo "$ORCHESTRATE_JOBS" | jq -c '[.[] | . + {Environment: (if (.WorkingDirectory | split("/") | length) >= 2 then (.WorkingDirectory | split("/") | .[0:2] | join("-")) else "" end)}]')
             {
               echo "jobs<<ENRICH_EOF"
               echo "$ENRICHED"
@@ -174,7 +175,8 @@ jobs:
   pipelines_execute:
     # Use GitHub Environment for apply jobs so the OIDC token includes the environment claim.
     # Plans run without an environment since they only need read access.
-    environment: ${{ !contains(matrix.jobs.Action.Command, 'plan') && matrix.jobs.Environment || '' }}
+    # Jobs with no environment (e.g. root-level file changes) also skip this.
+    environment: ${{ !contains(matrix.jobs.Action.Command, 'plan') && matrix.jobs.Environment != '' && matrix.jobs.Environment || '' }}
     env:
       JOB_NAME: ${{ contains(matrix.jobs.Action.Command, 'plan') && 'Plan' || 'Apply' }} - ${{ matrix.jobs.ChangeType }} - ${{ matrix.jobs.WorkingDirectory }}
     name: ${{ contains(matrix.jobs.Action.Command, 'plan') && 'Plan' || 'Apply' }} - ${{ matrix.jobs.ChangeType }} - ${{ matrix.jobs.WorkingDirectory }}
