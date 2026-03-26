@@ -158,9 +158,14 @@ jobs:
           ORCHESTRATE_JOBS: ${{ steps.orchestrate.outputs.jobs }}
         run: |
           if [ -z "$ORCHESTRATE_JOBS" ] || [ "$ORCHESTRATE_JOBS" = "[]" ]; then
-            echo "jobs=[]" >> $GITHUB_OUTPUT
+            echo "jobs=[]" >> "$GITHUB_OUTPUT"
           else
-            echo "jobs=$(echo "$ORCHESTRATE_JOBS" | jq -c '[.[] | . + {Environment: (.WorkingDirectory | split("/") | .[0:2] | join("-"))}]')" >> $GITHUB_OUTPUT
+            ENRICHED=$(echo "$ORCHESTRATE_JOBS" | jq -c '[.[] | . + {Environment: (.WorkingDirectory | split("/") | .[0:2] | join("-"))}]')
+            {
+              echo "jobs<<ENRICH_EOF"
+              echo "$ENRICHED"
+              echo "ENRICH_EOF"
+            } >> "$GITHUB_OUTPUT"
           fi
 
     outputs:
