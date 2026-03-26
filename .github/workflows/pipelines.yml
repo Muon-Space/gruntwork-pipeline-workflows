@@ -159,10 +159,7 @@ jobs:
           if [ -z "$JOBS" ] || [ "$JOBS" = "[]" ]; then
             echo "jobs=[]" >> $GITHUB_OUTPUT
           else
-            echo "$JOBS" | \
-              jq '[.[] | . + {Environment: (.WorkingDirectory | split("/") | .[0:2] | join("-"))}]' \
-              > /tmp/enriched-jobs.json
-            echo "jobs=$(cat /tmp/enriched-jobs.json)" >> $GITHUB_OUTPUT
+            echo "jobs=$(echo "$JOBS" | jq -c '[.[] | . + {Environment: (.WorkingDirectory | split("/") | .[0:2] | join("-"))}]')" >> $GITHUB_OUTPUT
           fi
 
     outputs:
