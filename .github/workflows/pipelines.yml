@@ -154,12 +154,13 @@ jobs:
       # This follows the convention that .gruntwork/ environment labels match <system>-<environment>.
       - name: Enrich jobs with GitHub Environment
         id: enrich
+        env:
+          ORCHESTRATE_JOBS: ${{ steps.orchestrate.outputs.jobs }}
         run: |
-          JOBS='${{ steps.orchestrate.outputs.jobs }}'
-          if [ -z "$JOBS" ] || [ "$JOBS" = "[]" ]; then
+          if [ -z "$ORCHESTRATE_JOBS" ] || [ "$ORCHESTRATE_JOBS" = "[]" ]; then
             echo "jobs=[]" >> $GITHUB_OUTPUT
           else
-            echo "jobs=$(echo "$JOBS" | jq -c '[.[] | . + {Environment: (.WorkingDirectory | split("/") | .[0:2] | join("-"))}]')" >> $GITHUB_OUTPUT
+            echo "jobs=$(echo "$ORCHESTRATE_JOBS" | jq -c '[.[] | . + {Environment: (.WorkingDirectory | split("/") | .[0:2] | join("-"))}]')" >> $GITHUB_OUTPUT
           fi
 
     outputs:
