@@ -30,7 +30,7 @@ on:
         description: "Override where we fetch pipelines from, used for internal testing"
       pipelines_cli_version:
         type: string
-        default: "v0.48.0"
+        default: "v0.48.1"
         description: "For Gruntwork internal testing - the version of the pipelines CLI to use"
       pipelines_actions_repo:
         type: string
@@ -149,10 +149,29 @@ jobs:
           PIPELINES_CUSTOMER_ORG_READ_TOKEN: ${{ steps.pipelines-customer-org-read-token.outputs.PIPELINES_TOKEN }}
           PR_COMMENT_WRITE_TOKEN: ${{ steps.pipelines-propose-infra-change-token.outputs.PIPELINES_TOKEN }}
 
+      # Enrich orchestrate output with GitHub Environment names derived from WorkingDirectory.
+      # e.g. network-inspection/production/account_baseline -> network-inspection-production
+      # This follows the convention that .gruntwork/ environment labels match <system>-<environment>.
+      - name: Enrich jobs with GitHub Environment
+        id: enrich
+        run: |
+          JOBS='${{ steps.orchestrate.outputs.jobs }}'
+          if [ -z "$JOBS" ] || [ "$JOBS" = "[]" ]; then
+            echo "jobs=[]" >> $GITHUB_OUTPUT
+          else
+            echo "$JOBS" | \
+              jq '[.[] | . + {Environment: (.WorkingDirectory | split("/") | .[0:2] | join("-"))}]' \
+              > /tmp/enriched-jobs.json
+            echo "jobs=$(cat /tmp/enriched-jobs.json)" >> $GITHUB_OUTPUT
+          fi
+
     outputs:
-      pipelines_jobs: ${{ steps.orchestrate.outputs.jobs }}
+      pipelines_jobs: ${{ steps.enrich.outputs.jobs }}
 
   pipelines_execute:
+    # Use GitHub Environment for apply jobs so the OIDC token includes the environment claim.
+    # Plans run without an environment since they only need read access.
+    environment: ${{ !contains(matrix.jobs.Action.Command, 'plan') && matrix.jobs.Environment || '' }}
     env:
       JOB_NAME: ${{ contains(matrix.jobs.Action.Command, 'plan') && 'Plan' || 'Apply' }} - ${{ matrix.jobs.ChangeType }} - ${{ matrix.jobs.WorkingDirectory }}
     name: ${{ contains(matrix.jobs.Action.Command, 'plan') && 'Plan' || 'Apply' }} - ${{ matrix.jobs.ChangeType }} - ${{ matrix.jobs.WorkingDirectory }}
