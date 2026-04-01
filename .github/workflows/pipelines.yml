@@ -149,10 +149,10 @@ jobs:
           PIPELINES_CUSTOMER_ORG_READ_TOKEN: ${{ steps.pipelines-customer-org-read-token.outputs.PIPELINES_TOKEN }}
           PR_COMMENT_WRITE_TOKEN: ${{ steps.pipelines-propose-infra-change-token.outputs.PIPELINES_TOKEN }}
 
-      # Enrich orchestrate output with GitHub Environment names derived from WorkingDirectory.
-      # e.g. network-inspection/production/account_baseline -> network-inspection-production
-      # Root-level jobs (WorkingDirectory ".") get no environment.
-      # This follows the convention that .gruntwork/ environment labels match <system>-<environment>.
+      # Enrich orchestrate output with GitHub Environment names.
+      # - Normal jobs: derive from WorkingDirectory path (e.g. network-inspection/production/unit -> network-inspection-production)
+      # - Root-level jobs (WorkingDirectory "."): clone into one job per registered .gruntwork/ environment
+      # This ensures each job runs with the correct OIDC environment claim for IAM role trust policies.
       - name: Enrich jobs with GitHub Environment
         id: enrich
         env:
@@ -160,14 +160,36 @@ jobs:
         run: |
           if [ -z "$ORCHESTRATE_JOBS" ] || [ "$ORCHESTRATE_JOBS" = "[]" ]; then
             echo "jobs=[]" >> "$GITHUB_OUTPUT"
-          else
-            ENRICHED=$(echo "$ORCHESTRATE_JOBS" | jq -c '[.[] | . + {Environment: (if (.WorkingDirectory | split("/") | length) >= 2 then (.WorkingDirectory | split("/") | .[0:2] | join("-")) else "" end)}]')
-            {
-              echo "jobs<<ENRICH_EOF"
-              echo "$ENRICHED"
-              echo "ENRICH_EOF"
-            } >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          # Discover registered environments from .gruntwork/environment-*.hcl filenames
+          ENVS=$(ls infra-live-repo/.gruntwork/environment-*.hcl 2>/dev/null | while read -r f; do
+            basename "$f" .hcl | sed 's/^environment-//'
+          done | jq -R -s -c 'split("\n") | map(select(. != ""))')
+
+          if [ -z "$ENVS" ] || [ "$ENVS" = "[]" ]; then
+            ENVS='[]'
+          fi
+
+          # Enrich jobs:
+          # - Root-level jobs (WorkingDirectory "." or < 2 path segments): clone per environment
+          # - Normal jobs: derive environment from first 2 path segments
+          ENRICHED=$(echo "$ORCHESTRATE_JOBS" | jq -c --argjson envs "$ENVS" '
+            [.[] |
+              if (.WorkingDirectory == "." or (.WorkingDirectory | split("/") | length) < 2) then
+                . as $job | $envs[] | $job + {Environment: .}
+              else
+                . + {Environment: (.WorkingDirectory | split("/") | .[0:2] | join("-"))}
+              end
+            ]
+          ')
+
+          {
+            echo "jobs<<ENRICH_EOF"
+            echo "$ENRICHED"
+            echo "ENRICH_EOF"
+          } >> "$GITHUB_OUTPUT"
 
     outputs:
       pipelines_jobs: ${{ steps.enrich.outputs.jobs }}
@@ -175,7 +197,6 @@ jobs:
   pipelines_execute:
     # Use GitHub Environment for apply jobs so the OIDC token includes the environment claim.
     # Plans run without an environment since they only need read access.
-    # Jobs with no environment (e.g. root-level file changes) also skip this.
     environment: ${{ !contains(matrix.jobs.Action.Command, 'plan') && matrix.jobs.Environment != '' && matrix.jobs.Environment || '' }}
     env:
       JOB_NAME: ${{ contains(matrix.jobs.Action.Command, 'plan') && 'Plan' || 'Apply' }} - ${{ matrix.jobs.ChangeType }} - ${{ matrix.jobs.WorkingDirectory }}
